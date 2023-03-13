@@ -44,6 +44,7 @@ class FaceTracker:
                          "mouth_corner_inout_r", "mouth_open", "mouth_wide"]
         
         self.terminate = False
+        self.last_fps_counter = 0
 
     def run(self):
         model_base_path = get_model_base_path(self.model_dir)
@@ -78,6 +79,7 @@ class FaceTracker:
 
         features = self.features
         is_camera = self.capture == str(try_int(self.capture))
+        perf_time = time.perf_counter()
 
         try:
             attempt = 0
@@ -174,7 +176,7 @@ class FaceTracker:
 
                 collected = False
                 del frame
-
+                
                 duration = time.perf_counter() - frame_time
                 while duration < target_duration:
                     if not collected:
@@ -186,6 +188,14 @@ class FaceTracker:
                         time.sleep(sleep_time)
                     duration = time.perf_counter() - frame_time
                 frame_time = time.perf_counter()
+                
+                time_diff = time.perf_counter() - perf_time
+                if time_diff >= 1:
+                    self.last_fps_counter = frame_count / time_diff
+                    frame_count = 0
+                    perf_time = time.perf_counter()
+                    if self.silent == 0:
+                        print("%5.2f fps"%self.last_fps_counter)
 
                 repeat = True
         except KeyboardInterrupt:
