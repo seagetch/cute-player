@@ -1,6 +1,5 @@
 import sys
-sys.path.append("..")
-
+sys.path.append("inochi2d-py")
 
 from PySide2 import QtWidgets, QtOpenGL, QtGui, QtCore
 from OpenGL import GL
