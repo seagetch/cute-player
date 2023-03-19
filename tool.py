@@ -2,7 +2,6 @@ import numpy as np
 import inochi2d.api as api
 import inochi2d.inochi2d as inochi2d
 
-
 class Tool:
     def __init__(self, window):
         self.window = window
@@ -52,6 +51,70 @@ class NodeTranslation(Tool):
         super(NodeTranslation, self).mouseReleaseEvent(event)
         self.drag = False
 
+
+class NodeRotation(Tool):
+    def __init__(self, window):
+        super(NodeRotation, self).__init__(window)
+        self.drag = False
+
+    def mousePressEvent(self, event):
+        super(NodeRotation, self).mousePressEvent(event)
+        self.pos[1] *= -1
+        target_node  = self.window.active_node
+        if target_node:
+            self.drag = True
+            self.transform    = target_node.transform
+            local_pos = np.linalg.inv(self.transform) @ self.pos
+            unit_pos = local_pos[0:2] / np.linalg.norm(local_pos[0:2])
+            self.start_angle = np.arctan2(unit_pos[1], unit_pos[0])
+            self.start_value = np.array(target_node.rotation)
+
+    def mouseMoveEvent(self, event):
+        super(NodeRotation, self).mouseMoveEvent(event)
+        if self.drag:
+            target_node = self.window.active_node
+            self.pos[1] *= -1
+            local_pos = np.linalg.inv(self.transform) @ self.pos
+            unit_pos = local_pos[0:2] / np.linalg.norm(local_pos[0:2])
+            cur_angle   = np.arctan2(unit_pos[1], unit_pos[0])
+            diff_angle  = cur_angle - self.start_angle
+            target_node.rotation = self.start_value + np.array([0, 0, (diff_angle + np.pi)%(2*np.pi) - np.pi])
+
+    def mouseReleaseEvent(self, event):
+        super(NodeRotation, self).mouseReleaseEvent(event)
+        if self.drag:
+            self.drag = False
+
+
+class NodeScaling(Tool):
+    def __init__(self, window):
+        super(NodeScaling, self).__init__(window)
+        self.drag = False
+
+    def mousePressEvent(self, event):
+        super(NodeScaling, self).mousePressEvent(event)
+        target = self.window.active_node
+        if target:
+            self.drag = True
+            self.transform = target.transform
+            local_pos = self.transform @ self.pos
+            self.drag_start = local_pos
+            self.start_value = target.scale
+
+    def mouseMoveEvent(self, event):
+        super(NodeScaling, self).mouseMoveEvent(event)
+        if self.drag:
+            target = self.window.active_node
+            if target:
+                local_pos = self.transform @ self.pos
+                scale = np.abs(np.nan_to_num(local_pos[0:2] / self.drag_start[0:2], nan = 1.0))
+                target.scale = self.start_value * scale
+
+    def mouseReleaseEvent(self, event):
+        super(NodeScaling, self).mouseReleaseEvent(event)
+        self.drag = False
+
+
 class DeformTranslation(Tool):
     def __init__(self, window):
         super(DeformTranslation, self).__init__(window)
@@ -87,6 +150,78 @@ class DeformTranslation(Tool):
             self.drag = False
 
 
+class DeformRotation(Tool):
+    def __init__(self, window):
+        super(DeformRotation, self).__init__(window)
+        self.drag = False
+
+    def mousePressEvent(self, event):
+        super(DeformRotation, self).mousePressEvent(event)
+        self.pos[1] *= -1
+        target_node  = self.window.active_node
+        target_param = self.window.active_param
+        if target_node and target_param:
+            self.drag = True
+            self.transform    = target_node.transform
+            local_pos = np.linalg.inv(self.transform) @ self.pos
+            unit_pos = local_pos[0:2] / np.linalg.norm(local_pos[0:2])
+            self.start_angle = np.arctan2(unit_pos[1], unit_pos[0])
+            self.keypoint = target_param.find_closest_keypoint()
+            self.binding_z = target_param.get_or_add_binding(target_node, "transform.r.z")
+            self.start_value_z = self.binding_z.value[self.keypoint[0], self.keypoint[1]]
+
+    def mouseMoveEvent(self, event):
+        super(DeformRotation, self).mouseMoveEvent(event)
+        if self.drag:
+            self.pos[1] *= -1
+            local_pos = np.linalg.inv(self.transform) @ self.pos
+            unit_pos = local_pos[0:2] / np.linalg.norm(local_pos[0:2])
+            cur_angle   = np.arctan2(unit_pos[1], unit_pos[0])
+            diff_angle  = cur_angle - self.start_angle
+            self.binding_z.value[self.keypoint[0], self.keypoint[1]] = (self.start_value_z + diff_angle + np.pi)%(2*np.pi) - np.pi
+            self.binding_z.reinterpolate()
+
+    def mouseReleaseEvent(self, event):
+        super(DeformRotation, self).mouseReleaseEvent(event)
+        if self.drag:
+            self.drag = False
+
+
+class DeformScaling(Tool):
+    def __init__(self, window):
+        super(DeformScaling, self).__init__(window)
+        self.drag = False
+
+    def mousePressEvent(self, event):
+        super(DeformScaling, self).mousePressEvent(event)
+        target_node = self.window.active_node
+        target_param = self.window.active_param
+        if target_node and target_param:
+            self.drag = True
+            self.transform = target_node.transform
+            local_pos = self.transform @ self.pos
+            self.drag_start = local_pos
+            self.keypoint = target_param.find_closest_keypoint()
+            self.binding_x = target_param.get_or_add_binding(target_node, "transform.s.x")
+            self.binding_y = target_param.get_or_add_binding(target_node, "transform.s.y")
+            self.start_value_x = self.binding_x.value[self.keypoint[0], self.keypoint[1]]
+            self.start_value_y = self.binding_y.value[self.keypoint[0], self.keypoint[1]]
+
+    def mouseMoveEvent(self, event):
+        super(DeformScaling, self).mouseMoveEvent(event)
+        if self.drag:
+            local_pos = self.transform @ self.pos
+            scale = np.abs(np.nan_to_num(local_pos[0:2] / self.drag_start[0:2], nan = 1.0))
+            self.binding_x.value[self.keypoint[0], self.keypoint[1]] = scale[0] * self.start_value_x
+            self.binding_y.value[self.keypoint[0], self.keypoint[1]] = scale[1] * self.start_value_y
+            self.binding_x.reinterpolate()
+            self.binding_y.reinterpolate()
+
+    def mouseReleaseEvent(self, event):
+        super(DeformScaling, self).mouseReleaseEvent(event)
+        self.drag = False
+
+
 class Deformer(Tool):
     def __init__(self, window):
         super(Deformer, self).__init__(window)
@@ -117,7 +252,7 @@ class Deformer(Tool):
             drawable = inochi2d.Drawable(target_node)
             self.vertices     = drawable.vertices
             self.deformation  = drawable.deformation
-            self.transform    = drawable.transform
+            self.transform    = drawable.dynamic_matrix
 
             local_pos = np.linalg.inv(self.transform) @ self.pos
             self.drag_start = local_pos
@@ -134,7 +269,9 @@ class Deformer(Tool):
             self.pos[1] *= -1
             local_pos = np.linalg.inv(self.transform) @ self.pos
             diff_pos = local_pos - self.drag_start
-            self.binding.value[self.keypoint[0], self.keypoint[1]] = (self.start_deform + np.append([self.selected], [self.selected], axis=0).T * np.repeat([diff_pos[0:2]], len(self.selected), axis=0)).astype(np.float32)
+            selected = np.append([self.selected], [self.selected], axis=0).T
+            pos      = np.repeat([diff_pos[0:2]], len(self.selected), axis=0)
+            self.binding.value[self.keypoint[0], self.keypoint[1]] = (self.start_deform + selected * pos).astype(np.float32)
             self.binding.reinterpolate()
 
     def mouseReleaseEvent(self, event):
@@ -147,7 +284,15 @@ class Deformer(Tool):
             position = self.vertices + self.deformation
             new_position = np.zeros((len(self.vertices), 3), dtype=np.float32)
             new_position[:, 0:2] = position
+#            inochi2d.dbg.set_buffer(new_position)
+#            inochi2d.dbg.points_size(6)
+#            inochi2d.dbg.draw_points(np.array([0, 0, 0, 1.0], dtype=np.float32), self.transform)
             new_position = new_position[np.where(self.selected == 1)]
             inochi2d.dbg.set_buffer(new_position)
             inochi2d.dbg.points_size(6)
             inochi2d.dbg.draw_points(np.array([0, 1.0, 1.0, 1.0], dtype=np.float32), self.transform)
+            local_pos = np.linalg.inv(self.transform) @ self.pos
+            dbg_points = np.array([local_pos[0:3]])
+            inochi2d.dbg.set_buffer(dbg_points)
+            inochi2d.dbg.points_size(6)
+            inochi2d.dbg.draw_points(np.array([0, 0, 1.0, 1.0], dtype=np.float32), self.transform)

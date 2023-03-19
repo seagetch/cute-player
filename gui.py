@@ -425,17 +425,25 @@ def run(tracker=None):
             gl_widget.tool = None
             for action in window.tool_actions:
                 v_toolbar.removeAction(action)
+ 
             action = QtWidgets.QAction(qta.icon("fa.arrows"), "Translate", tool_group, checkable=True)
             tool   = NodeTranslation(gl_widget)
             action.toggled.connect(select_handler(tool))
             v_toolbar.addAction(action)
             window.tool_actions.append(action)
+
             action = QtWidgets.QAction(qta.icon("fa.rotate-left"), "Rotate", tool_group, checkable=True)
+            tool   = NodeRotation(gl_widget)
+            action.toggled.connect(select_handler(tool))
             v_toolbar.addAction(action)
             window.tool_actions.append(action)
+
             action = QtWidgets.QAction(qta.icon("mdi.arrow-top-right-bottom-left-bold"), "Scale", tool_group, checkable=True)
+            tool   = NodeScaling(gl_widget)
+            action.toggled.connect(select_handler(tool))
             v_toolbar.addAction(action)
             window.tool_actions.append(action)
+
             action = QtWidgets.QAction(qta.icon("mdi.graphql"), "Edit Vertices", tool_group, checkable=True)
             v_toolbar.addAction(action)
             window.tool_actions.append(action)
@@ -463,19 +471,21 @@ def run(tracker=None):
             window.tool_actions.append(action)
 
             action = QtWidgets.QAction(qta.icon("fa.rotate-left"), "Rotate", tool_group, checkable=True)
+            tool   = DeformRotation(gl_widget)
+            action.toggled.connect(select_handler(tool))
             v_toolbar.addAction(action)
-            action.toggled.connect(select_handler(action))
             window.tool_actions.append(action)
 
             action = QtWidgets.QAction(qta.icon("mdi.arrow-top-right-bottom-left-bold"), "Scale", tool_group, checkable=True)
+            tool   = DeformScaling(gl_widget)
+            action.toggled.connect(select_handler(tool))
             v_toolbar.addAction(action)
-            action.toggled.connect(select_handler(action))
             window.tool_actions.append(action)
 
             action = QtWidgets.QAction(qta.icon("mdi.graphql"), "Edit Vertices", tool_group, checkable=True)
             tool   = Deformer(gl_widget)
-            v_toolbar.addAction(action)
             action.toggled.connect(select_handler(tool))
+            v_toolbar.addAction(action)
             window.tool_actions.append(action)
 
             action = QtWidgets.QAction(qta.icon("mdi.border-all"), "Warp Transform", tool_group, checkable=True)
