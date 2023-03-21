@@ -158,19 +158,22 @@ class NodeScaling(NodeTool):
 
 
 class DeformationTool(Tool):
-    def draw(self, node):
-        # Bounds
-        bounds_x, bounds_y, bounds_z, bounds_w = node.combined_bounds
+    def _draw_rect(self, bounds, color, matrix=None):
+        bounds_x, bounds_y, bounds_z, bounds_w = bounds
         position = np.array([[bounds_x, bounds_y, 0], [bounds_z, bounds_y, 0], 
                                 [bounds_z, bounds_y, 0], [bounds_z, bounds_w, 0], 
                                 [bounds_z, bounds_w, 0], [bounds_x, bounds_w, 0],
                                 [bounds_x, bounds_w, 0], [bounds_x, bounds_y, 0]], dtype=np.float32)
         inochi2d.dbg.set_buffer(position)
         inochi2d.dbg.line_width(3)
+        inochi2d.dbg.draw_lines(color, matrix)
+
+    def draw(self, node):
+        # Bounds
         if self.window.active_param:
-            inochi2d.dbg.draw_lines(np.array([0, 0.6, 1.0, 1.0], dtype=np.float32), None)
+            self._draw_rect(node.combined_bounds, np.array([0, 0.6, 1.0, 1.0], dtype=np.float32), None)
         else:
-            inochi2d.dbg.draw_lines(np.array([0.5, 0.5, 0.5, 1.0], dtype=np.float32), None)
+            self._draw_rect(node.combined_bounds, np.array([0.5, 0.5, 0.5, 1.0], dtype=np.float32), None)
 
         # Points
         try:
@@ -188,9 +191,9 @@ class DeformationTool(Tool):
             else:
                 inochi2d.dbg.draw_points(np.array([0.5, 0.5, 0.5, 1.0], dtype=np.float32), self.dynamic_matrix)
 
+            self.draw_position = new_position
         except Exception:
             pass
-        self.draw_position = new_position
 
 
 class DeformTranslation(DeformationTool):
@@ -322,6 +325,7 @@ class Deformer(DeformationTool):
         self.target_param = None
         self.selecting    = None
         self.transform = None
+        self.draw_position = None
 
     def init(self):
         self.window.setCursor(QtCore.Qt.PointingHandCursor)
@@ -390,7 +394,7 @@ class Deformer(DeformationTool):
 
     def draw(self, node):
         super(Deformer, self).draw(node)
-        if self.target_node and self.target_node.uuid == node.uuid:
+        if self.draw_position is not None and self.target_node and self.target_node.uuid == node.uuid:
             dynamic_matrix = self.dynamic_matrix
             if self.selected is not None and len(self.selected) > 0:
                 # Selected point
@@ -402,6 +406,9 @@ class Deformer(DeformationTool):
                 inochi2d.dbg.draw_points(np.array([0, 1, 1, 1.0], dtype=np.float32), dynamic_matrix)
             if self.selecting is not None and len(self.selecting) > 0:
                 # Selection floating
+                local_pos = np.linalg.inv(self.transform) @ self.pos
+                self._draw_rect((self.drag_start[0], self.drag_start[1], local_pos[0], local_pos[1]), np.array([0, 1, 0, 1], dtype=np.float32), self.transform)
                 selecting = self.draw_position[np.where(self.selecting)]
                 inochi2d.dbg.set_buffer(selecting)
+                inochi2d.dbg.points_size(self.RADIUS)
                 inochi2d.dbg.draw_points(np.array([0, 1.0, 0, 1.0], dtype=np.float32), dynamic_matrix)

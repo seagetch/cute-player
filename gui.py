@@ -443,7 +443,7 @@ def run(tracker=None):
     tool_group = QtWidgets.QActionGroup(window)
 
     mode_group = QtWidgets.QActionGroup(window)
-    parts_layout_action = QtWidgets.QAction(qta.icon("mdi.shape"), "Parts Layout", mode_group, checkable=True)
+    parts_layout_action = QtWidgets.QAction(qta.icon("mdi.human"), "Parts Layout", mode_group, checkable=True)
     v_toolbar.addAction(parts_layout_action)
 
     def on_toggle_parts_layout(isChecked):
@@ -465,6 +465,8 @@ def run(tracker=None):
             window.tool_actions = []
             param_list.active = False
             param_list.update()
+            for param in gl_widget.puppet.parameters:
+                param.reset()
  
             action = QtWidgets.QAction(qta.icon("fa.arrows"), "Translate", tool_group, checkable=True)
             tool   = NodeTranslation(gl_widget)
@@ -600,7 +602,7 @@ def run(tracker=None):
 #    gl_widget.on_update_tracking = on_update_tracking
 
     view_group = QtWidgets.QActionGroup(window)
-    puppet_view_action    = QtWidgets.QAction(qta.icon("mdi.human"), "Puppet edit view", view_group, checkable=True)
+    puppet_view_action    = QtWidgets.QAction(qta.icon("mdi.shape"), "Puppet edit view", view_group, checkable=True)
     toolbar.addAction(puppet_view_action)
     zoom_node_view_action = QtWidgets.QAction(qta.icon("mdi.magnify"), "Node edit view", view_group, checkable=True)
     toolbar.addAction(zoom_node_view_action)
