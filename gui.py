@@ -123,10 +123,11 @@ class Inochi2DView(QtOpenGL.QGLWidget):
 
         if self.active_node and self.tool:
             drawable = inochi2d.Drawable(self.active_node)
-            drawable.draw_bounds()
+
+#            drawable.draw_bounds()
             drawable.draw_mesh_lines()
-            drawable.draw_mesh_points()
-            self.tool.draw()
+#            drawable.draw_mesh_points()
+            self.tool.draw(self.active_node)
     
         if self.on_update_tracking:
             self.on_update_tracking(self)
@@ -141,6 +142,7 @@ class Inochi2DView(QtOpenGL.QGLWidget):
 class ParameterView(QtWidgets.QWidget):
     def __init__(self, param, parent=None):
         super(ParameterView, self).__init__(parent)
+        self.param_list = parent
         self.param = param
         self.setMinimumSize(120, 120 + 16 if self.param.is_vec2 else 16 + 16)
         self.min = self.param.min
@@ -172,6 +174,9 @@ class ParameterView(QtWidgets.QWidget):
         rect = QtCore.QRect(8, 8 + 16, painter.device().width()-16, painter.device().height()-16-16)
         dev_w = painter.device().width() - 16
         dev_h = painter.device().height() - 16 - 16
+        if self.param_list.active:
+            brush.setColor(QtGui.QColor('#f8f8f8'))
+            painter.fillRect(rect, brush)
         painter.drawRect(rect)
 
         painter.setPen(QtGui.QColor('black'))
@@ -181,7 +186,10 @@ class ParameterView(QtWidgets.QWidget):
             value = self.param.value
 
             radius = 4
-            brush.setColor(QtGui.QColor("red"))
+            if self.param_list.active:
+                brush.setColor(QtGui.QColor("red"))
+            else:
+                brush.setColor(QtGui.QColor("#808080"))
             painter.setBrush(brush)
             if self.param.is_vec2:
                 x_ratio = (value[0] - self.min[0])/(self.max[0] - self.min[0])
@@ -198,6 +206,8 @@ class ParameterView(QtWidgets.QWidget):
         self.update()
 
     def mousePressEvent(self, event):
+        if not self.param_list.active:
+            return
         if self.on_select:
             self.on_select(self)
         if self._update_in_rect(event.pos()):
@@ -206,11 +216,15 @@ class ParameterView(QtWidgets.QWidget):
         super(ParameterView, self).mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
+        if not self.param_list.active:
+            return
         if self._update_in_rect(event.pos()) or self.drag:
             return
         super(ParameterView, self).mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        if not self.param_list.active:
+            return
         if self.drag:
             self.drag = False
         super(ParameterView, self).mouseReleaseEvent(event)
@@ -246,31 +260,40 @@ def run(tracker=None):
     menubar = window.menuBar()
     fileMenu = menubar.addMenu("&File")
     statusbar = window.statusBar()
-    dock_l = [QtWidgets.QDockWidget("L%d"%i, window) for i in range(4)]
-    window.addDockWidget(QtCore.Qt.LeftDockWidgetArea, dock_l[0])
-    window.splitDockWidget(dock_l[0], dock_l[2], QtCore.Qt.Horizontal);
-    window.splitDockWidget(dock_l[0], dock_l[1], QtCore.Qt.Vertical);
-    window.splitDockWidget(dock_l[2], dock_l[3], QtCore.Qt.Vertical);
     toolbar = QtWidgets.QToolBar("Main", window) #window.addToolBar("Main")
     v_toolbar = QtWidgets.QToolBar("Tool", window)
 
-    list_container = QtWidgets.QScrollArea(dock_l[0])
-    list_widget = QtWidgets.QWidget()
-    list_widget.active_widget = None
-    list_container.setWidget(list_widget)
+    list_container = QtWidgets.QScrollArea(window)
+    param_list = QtWidgets.QWidget()
+    param_list.active_widget = None
+    param_list.active = False
+    list_container.setWidget(param_list)
     list_container.setWidgetResizable(True)
-    dock_l[0].setWidget(list_container)
     
-    bind_list   = QtWidgets.QListWidget(dock_l[1])
-    dock_l[1].setWidget(bind_list)
+    bind_list   = QtWidgets.QListWidget(window)
     
-    tree_widget = QtWidgets.QTreeWidget(dock_l[2])
+    tree_widget = QtWidgets.QTreeWidget(window)
     tree_widget.setIconSize(QtCore.QSize(24, 24))
-    dock_l[2].setWidget(tree_widget)
     tree_widget.setHeaderHidden(True)
 
-    text_area = QtWidgets.QTextEdit(dock_l[3])
-    dock_l[3].setWidget(text_area)
+    text_area = QtWidgets.QTextEdit(window)
+    docked_widgets = {
+        "Parameters": list_container,
+        "Parameter Bindings": bind_list,
+        "Node Tree View": tree_widget,
+        "Node Inspection": text_area
+    }
+
+    dock_l = [QtWidgets.QDockWidget(name, window) for name in docked_widgets.keys()]
+    for i, widget in enumerate(docked_widgets.values()):
+        dock_l[i].setWidget(widget)
+    window.addDockWidget(QtCore.Qt.LeftDockWidgetArea, dock_l[0])
+    window.addDockWidget(QtCore.Qt.LeftDockWidgetArea, dock_l[1])
+    window.addDockWidget(QtCore.Qt.RightDockWidgetArea, dock_l[2])
+    window.addDockWidget(QtCore.Qt.RightDockWidgetArea, dock_l[3])
+#    window.splitDockWidget(dock_l[0], dock_l[2], QtCore.Qt.Horizontal);
+#    window.splitDockWidget(dock_l[0], dock_l[1], QtCore.Qt.Vertical);
+#    window.splitDockWidget(dock_l[2], dock_l[3], QtCore.Qt.Vertical);
 
     gl_widget = Inochi2DView(window)
     gl_widget.statusbar = statusbar
@@ -338,16 +361,17 @@ def run(tracker=None):
         tree_widget.itemClicked.connect(dump_json)
         tree_widget.expandAll()
 
+        # Parameter View
 
         def param_selected(item):
-            if list_widget.active_widget != item:
-                prev_active = list_widget.active_widget
+            if param_list.active_widget != item:
+                prev_active = param_list.active_widget
                 if prev_active:
                     prev_active.active = False
                     prev_active.update()
-                list_widget.active_widget = item
+                param_list.active_widget = item
                 item.active = True
-                list_widget.update()
+                param_list.update()
             bind_list.clear()
             self.active_param = item.param
             bindings = item.param.bindings
@@ -367,11 +391,11 @@ def run(tracker=None):
                 self.bindings.append(bind_item)
                 bind_item.value = None
 
-        print("puppet:parameters")
         params = self.puppet.parameters
         self.params = {}
         vbox = QtWidgets.QVBoxLayout()
-        list_widget.setLayout(vbox)
+        param_list.setLayout(vbox)
+        param_list.active = False
         for param in params:
             uuid = param.uuid
             name = param.name
@@ -380,7 +404,7 @@ def run(tracker=None):
             else:
                 x = param.value
                 y = 0
-            list_item = ParameterView(param, list_widget)
+            list_item = ParameterView(param, param_list)
             vbox.addWidget(list_item)
             self.params[name] = (param, list_item)
             list_item.on_select = param_selected
@@ -391,8 +415,10 @@ def run(tracker=None):
         self.camera.position = (0., 0.)
 
         self.timer = 0
+        transform_action.setChecked(True)
+        transform_action.activate(QtWidgets.QAction.Trigger)
 
-
+    # Layout of Main Area
     gl_widget.onload = onload
     gl_widget.tracker = tracker
 
@@ -411,89 +437,131 @@ def run(tracker=None):
 
     main_hbox.addWidget(gl_widget)
 
+
+    # Set up Vertical Toolbar
+    window.tool_actions = []
+    tool_group = QtWidgets.QActionGroup(window)
+
     mode_group = QtWidgets.QActionGroup(window)
-    action = QtWidgets.QAction(qta.icon("mdi.shape"), "Parts Layout", mode_group, checkable=True)
-    v_toolbar.addAction(action)
+    parts_layout_action = QtWidgets.QAction(qta.icon("mdi.shape"), "Parts Layout", mode_group, checkable=True)
+    v_toolbar.addAction(parts_layout_action)
 
     def on_toggle_parts_layout(isChecked):
         def select_handler(action):
             def on_select(isChecked):
                 if isChecked:
                     gl_widget.tool = action
+                    gl_widget.setCursor(QtCore.Qt.ArrowCursor)
+                    if gl_widget.tool:
+                        gl_widget.tool.init()
             return on_select
         if isChecked:
+            tool_id = -1
+            if gl_widget.tool:
+                tool_id = gl_widget.tool.id
             gl_widget.tool = None
             for action in window.tool_actions:
                 v_toolbar.removeAction(action)
+            window.tool_actions = []
+            param_list.active = False
+            param_list.update()
  
             action = QtWidgets.QAction(qta.icon("fa.arrows"), "Translate", tool_group, checkable=True)
             tool   = NodeTranslation(gl_widget)
+            tool.id = len(window.tool_actions)
             action.toggled.connect(select_handler(tool))
             v_toolbar.addAction(action)
             window.tool_actions.append(action)
 
             action = QtWidgets.QAction(qta.icon("fa.rotate-left"), "Rotate", tool_group, checkable=True)
             tool   = NodeRotation(gl_widget)
+            tool.id = len(window.tool_actions)
             action.toggled.connect(select_handler(tool))
             v_toolbar.addAction(action)
             window.tool_actions.append(action)
 
             action = QtWidgets.QAction(qta.icon("mdi.arrow-top-right-bottom-left-bold"), "Scale", tool_group, checkable=True)
             tool   = NodeScaling(gl_widget)
+            tool.id = len(window.tool_actions)
             action.toggled.connect(select_handler(tool))
             v_toolbar.addAction(action)
             window.tool_actions.append(action)
 
             action = QtWidgets.QAction(qta.icon("mdi.graphql"), "Edit Vertices", tool_group, checkable=True)
+            tool   = None
+#            tool.id = len(window.tool_actions)
+            action.toggled.connect(select_handler(tool))
             v_toolbar.addAction(action)
             window.tool_actions.append(action)
+            if tool_id >= 0 and tool_id < len(window.tool_actions) and window.tool_actions[tool_id]:
+                window.tool_actions[tool_id].setChecked(True)
+                window.tool_actions[tool_id].activate(QtWidgets.QAction.Trigger)
 
-    action.toggled.connect(on_toggle_parts_layout)
+    parts_layout_action.toggled.connect(on_toggle_parts_layout)
 
-    action = QtWidgets.QAction(qta.icon("msc.settings"), "Transformation", mode_group, checkable=True)
-    v_toolbar.addAction(action)
+    transform_action = QtWidgets.QAction(qta.icon("msc.settings"), "Transformation", mode_group, checkable=True)
+    v_toolbar.addAction(transform_action)
 
     def on_toggle_transform(isChecked):
         def select_handler(action):
             def on_select(isChecked):
                 if isChecked:
                     gl_widget.tool = action
+                    gl_widget.setCursor(QtCore.Qt.ArrowCursor)
+                    if gl_widget.tool:
+                        gl_widget.tool.init()
             return on_select
         if isChecked:
+            tool_id = -1
+            if gl_widget.tool:
+                tool_id = gl_widget.tool.id
             gl_widget.tool = None
             for action in window.tool_actions:
                 v_toolbar.removeAction(action)
+            window.tool_actions = []
 
+            param_list.active = True
+            param_list.update()
+ 
             action = QtWidgets.QAction(qta.icon("fa.arrows"), "Translate", tool_group, checkable=True)
             tool   = DeformTranslation(gl_widget)
+            tool.id = len(window.tool_actions)
             action.toggled.connect(select_handler(tool))
             v_toolbar.addAction(action)
             window.tool_actions.append(action)
 
             action = QtWidgets.QAction(qta.icon("fa.rotate-left"), "Rotate", tool_group, checkable=True)
             tool   = DeformRotation(gl_widget)
+            tool.id = len(window.tool_actions)
             action.toggled.connect(select_handler(tool))
             v_toolbar.addAction(action)
             window.tool_actions.append(action)
 
             action = QtWidgets.QAction(qta.icon("mdi.arrow-top-right-bottom-left-bold"), "Scale", tool_group, checkable=True)
             tool   = DeformScaling(gl_widget)
+            tool.id = len(window.tool_actions)
             action.toggled.connect(select_handler(tool))
             v_toolbar.addAction(action)
             window.tool_actions.append(action)
 
             action = QtWidgets.QAction(qta.icon("mdi.graphql"), "Edit Vertices", tool_group, checkable=True)
             tool   = Deformer(gl_widget)
+            tool.id = len(window.tool_actions)
             action.toggled.connect(select_handler(tool))
             v_toolbar.addAction(action)
             window.tool_actions.append(action)
 
             action = QtWidgets.QAction(qta.icon("mdi.border-all"), "Warp Transform", tool_group, checkable=True)
             v_toolbar.addAction(action)
-            action.toggled.connect(select_handler(action))
+            tool   = None
+#            tool.id = len(window.tool_actions)
+            action.toggled.connect(select_handler(tool))
             window.tool_actions.append(action)
+            if tool_id >= 0 and tool_id < len(window.tool_actions) and window.tool_actions[tool_id]:
+                window.tool_actions[tool_id].setChecked(True)
+                window.tool_actions[tool_id].activate(QtWidgets.QAction.Trigger)
 
-    action.toggled.connect(on_toggle_transform)
+    transform_action.toggled.connect(on_toggle_transform)
 
     action = QtWidgets.QAction(qta.icon("mdi.animation-play"), "Animation Timeline", mode_group, checkable=True)
     v_toolbar.addAction(action)
@@ -509,10 +577,6 @@ def run(tracker=None):
     _spacer = QtWidgets.QWidget(v_toolbar)
     _spacer.setMinimumSize(10, 32)
     v_toolbar.addWidget(_spacer)
-
-    window.tool_actions = []
-
-    tool_group = QtWidgets.QActionGroup(window)
 
     window.setCentralWidget(main_container)
 

@@ -1,12 +1,16 @@
 import numpy as np
 import inochi2d.api as api
 import inochi2d.inochi2d as inochi2d
+from PySide2 import QtCore
 
 class Tool:
     def __init__(self, window):
         self.window = window
         self.puppet = window.puppet
         self.camera = window.camera
+
+    def init(self):
+        pass
 
     def mousePressEvent(self, event):
         self.pos = np.array([event.pos().x(), event.pos().y(), 0, 1], dtype=np.float32)
@@ -21,13 +25,45 @@ class Tool:
         self.pos = np.array([event.pos().x(), event.pos().y(), 0, 1], dtype=np.float32)
         self.pos = self.matrix @ self.pos
 
-    def draw(self):
+    def draw(self, node):
         pass
 
-class NodeTranslation(Tool):
+
+class NodeTool(Tool):
+    def draw(self, node):
+        # Bounds
+        bounds_x, bounds_y, bounds_z, bounds_w = node.combined_bounds
+        position = np.array([[bounds_x, bounds_y, 0], [bounds_z, bounds_y, 0], 
+                                [bounds_z, bounds_y, 0], [bounds_z, bounds_w, 0], 
+                                [bounds_z, bounds_w, 0], [bounds_x, bounds_w, 0],
+                                [bounds_x, bounds_w, 0], [bounds_x, bounds_y, 0]], dtype=np.float32)
+        inochi2d.dbg.set_buffer(position)
+        inochi2d.dbg.line_width(3)
+        inochi2d.dbg.draw_lines(np.array([1, 0.6, 0, 1.0], dtype=np.float32), None)
+
+        # Points
+        try:
+            drawable = inochi2d.Drawable(node)
+            position = drawable.vertices + drawable.deformation
+            new_position = np.zeros((len(position), 3), dtype=np.float32)
+            new_position[:, 0:2] = position
+            dynamic_matrix = drawable.dynamic_matrix
+            inochi2d.dbg.set_buffer(new_position)
+            inochi2d.dbg.points_size(5)
+            inochi2d.dbg.draw_points(np.array([0, 0, 0, 1.0], dtype=np.float32), dynamic_matrix)
+            inochi2d.dbg.points_size(3)
+            inochi2d.dbg.draw_points(np.array([1, 0.6, 0, 1.0], dtype=np.float32), dynamic_matrix)
+        except Exception:
+            pass
+
+
+class NodeTranslation(NodeTool):
     def __init__(self, window):
         super(NodeTranslation, self).__init__(window)
         self.drag = False
+
+    def init(self):
+        self.window.setCursor(QtCore.Qt.SizeAllCursor)
 
     def mousePressEvent(self, event):
         super(NodeTranslation, self).mousePressEvent(event)
@@ -52,10 +88,13 @@ class NodeTranslation(Tool):
         self.drag = False
 
 
-class NodeRotation(Tool):
+class NodeRotation(NodeTool):
     def __init__(self, window):
         super(NodeRotation, self).__init__(window)
         self.drag = False
+
+    def init(self):
+        self.window.setCursor(QtCore.Qt.CrossCursor)
 
     def mousePressEvent(self, event):
         super(NodeRotation, self).mousePressEvent(event)
@@ -86,10 +125,13 @@ class NodeRotation(Tool):
             self.drag = False
 
 
-class NodeScaling(Tool):
+class NodeScaling(NodeTool):
     def __init__(self, window):
         super(NodeScaling, self).__init__(window)
         self.drag = False
+
+    def init(self):
+        self.window.setCursor(QtCore.Qt.SizeBDiagCursor)
 
     def mousePressEvent(self, event):
         super(NodeScaling, self).mousePressEvent(event)
@@ -115,10 +157,49 @@ class NodeScaling(Tool):
         self.drag = False
 
 
-class DeformTranslation(Tool):
+class DeformationTool(Tool):
+    def draw(self, node):
+        # Bounds
+        bounds_x, bounds_y, bounds_z, bounds_w = node.combined_bounds
+        position = np.array([[bounds_x, bounds_y, 0], [bounds_z, bounds_y, 0], 
+                                [bounds_z, bounds_y, 0], [bounds_z, bounds_w, 0], 
+                                [bounds_z, bounds_w, 0], [bounds_x, bounds_w, 0],
+                                [bounds_x, bounds_w, 0], [bounds_x, bounds_y, 0]], dtype=np.float32)
+        inochi2d.dbg.set_buffer(position)
+        inochi2d.dbg.line_width(3)
+        if self.window.active_param:
+            inochi2d.dbg.draw_lines(np.array([0, 0.6, 1.0, 1.0], dtype=np.float32), None)
+        else:
+            inochi2d.dbg.draw_lines(np.array([0.5, 0.5, 0.5, 1.0], dtype=np.float32), None)
+
+        # Points
+        try:
+            drawable = inochi2d.Drawable(node)
+            position = drawable.vertices + drawable.deformation
+            new_position = np.zeros((len(position), 3), dtype=np.float32)
+            new_position[:, 0:2] = position
+            self.dynamic_matrix = drawable.dynamic_matrix
+            inochi2d.dbg.set_buffer(new_position)
+            inochi2d.dbg.points_size(5)
+            inochi2d.dbg.draw_points(np.array([0, 0, 0, 1.0], dtype=np.float32), self.dynamic_matrix)
+            inochi2d.dbg.points_size(3)
+            if self.window.active_param:
+                inochi2d.dbg.draw_points(np.array([0, 0.6, 1, 1.0], dtype=np.float32), self.dynamic_matrix)
+            else:
+                inochi2d.dbg.draw_points(np.array([0.5, 0.5, 0.5, 1.0], dtype=np.float32), self.dynamic_matrix)
+
+        except Exception:
+            pass
+        self.draw_position = new_position
+
+
+class DeformTranslation(DeformationTool):
     def __init__(self, window):
         super(DeformTranslation, self).__init__(window)
         self.drag = False
+
+    def init(self):
+        self.window.setCursor(QtCore.Qt.SizeAllCursor)
 
     def mousePressEvent(self, event):
         super(DeformTranslation, self).mousePressEvent(event)
@@ -150,10 +231,13 @@ class DeformTranslation(Tool):
             self.drag = False
 
 
-class DeformRotation(Tool):
+class DeformRotation(DeformationTool):
     def __init__(self, window):
         super(DeformRotation, self).__init__(window)
         self.drag = False
+
+    def init(self):
+        self.window.setCursor(QtCore.Qt.CrossCursor)
 
     def mousePressEvent(self, event):
         super(DeformRotation, self).mousePressEvent(event)
@@ -187,10 +271,13 @@ class DeformRotation(Tool):
             self.drag = False
 
 
-class DeformScaling(Tool):
+class DeformScaling(DeformationTool):
     def __init__(self, window):
         super(DeformScaling, self).__init__(window)
         self.drag = False
+
+    def init(self):
+        self.window.setCursor(QtCore.Qt.SizeBDiagCursor)
 
     def mousePressEvent(self, event):
         super(DeformScaling, self).mousePressEvent(event)
@@ -222,7 +309,9 @@ class DeformScaling(Tool):
         self.drag = False
 
 
-class Deformer(Tool):
+class Deformer(DeformationTool):
+    RADIUS = 8
+
     def __init__(self, window):
         super(Deformer, self).__init__(window)
         self.drag = False
@@ -231,6 +320,11 @@ class Deformer(Tool):
         self.deformation = None
         self.target_node = None
         self.target_param = None
+        self.selecting    = None
+        self.transform = None
+
+    def init(self):
+        self.window.setCursor(QtCore.Qt.PointingHandCursor)
 
     def mousePressEvent(self, event):
         super(Deformer, self).mousePressEvent(event)
@@ -250,24 +344,34 @@ class Deformer(Tool):
             self.binding.reinterpolate()
             self.start_deform = np.copy(self.binding.value[self.keypoint[0], self.keypoint[1]])
             drawable = inochi2d.Drawable(target_node)
-            self.vertices     = drawable.vertices
-            self.deformation  = drawable.deformation
+            self.vertices     = drawable.vertices + drawable.deformation
             self.transform    = drawable.dynamic_matrix
 
             local_pos = np.linalg.inv(self.transform) @ self.pos
             self.drag_start = local_pos
-            distance = np.where(np.linalg.norm(self.vertices + self.deformation - local_pos[0:2], axis=1) < 6 / self.window.scale, 1, 0)
-            if self.selected is None:
-                self.selected = distance
+            selected = np.where(np.linalg.norm(self.vertices - local_pos[0:2], axis=1) < self.RADIUS / self.window.scale)
+            selected_map = np.zeros((len(self.vertices),), dtype=np.int)
+            if len(selected[0]) > 0:
+                selected_map[selected] = 1
+                if self.selected is None or np.sum(self.selected * selected_map) == 0:
+                    self.selected = selected_map
+                else:
+                    self.selected = self.selected | selected_map
             else:
-                self.selected ^= distance
+                self.selecting = selected_map
             
 
     def mouseMoveEvent(self, event):
         super(Deformer, self).mouseMoveEvent(event)
-        if self.drag:
+        if self.transform is not None:
             self.pos[1] *= -1
             local_pos = np.linalg.inv(self.transform) @ self.pos
+        if self.selecting is not None:
+            rect = np.array([self.drag_start[0:2], local_pos[0:2]])
+            self.selecting = (np.min(rect, axis=0) <= self.vertices) & (self.vertices <= np.max(rect, axis=0))
+            self.selecting = self.selecting[:, 0] & self.selecting[:, 1]
+            self.rect = rect
+        elif self.drag:
             diff_pos = local_pos - self.drag_start
             selected = np.append([self.selected], [self.selected], axis=0).T
             pos      = np.repeat([diff_pos[0:2]], len(self.selected), axis=0)
@@ -276,23 +380,28 @@ class Deformer(Tool):
 
     def mouseReleaseEvent(self, event):
         super(Deformer, self).mouseReleaseEvent(event)
+        if self.selecting is not None:
+            self.selected = self.selecting
+            self.selecting = None
         if self.drag:
-            self.drag = False
+            self.drag     = False
+            drawable = inochi2d.Drawable(self.target_node)
+            self.vertices = drawable.vertices + drawable.deformation
 
-    def draw(self):
-        if self.target_node and self.target_param and self.vertices is not None and self.deformation is not None and self.selected is not None:
-            position = self.vertices + self.deformation
-            new_position = np.zeros((len(self.vertices), 3), dtype=np.float32)
-            new_position[:, 0:2] = position
-#            inochi2d.dbg.set_buffer(new_position)
-#            inochi2d.dbg.points_size(6)
-#            inochi2d.dbg.draw_points(np.array([0, 0, 0, 1.0], dtype=np.float32), self.transform)
-            new_position = new_position[np.where(self.selected == 1)]
-            inochi2d.dbg.set_buffer(new_position)
-            inochi2d.dbg.points_size(6)
-            inochi2d.dbg.draw_points(np.array([0, 1.0, 1.0, 1.0], dtype=np.float32), self.transform)
-            local_pos = np.linalg.inv(self.transform) @ self.pos
-            dbg_points = np.array([local_pos[0:3]])
-            inochi2d.dbg.set_buffer(dbg_points)
-            inochi2d.dbg.points_size(6)
-            inochi2d.dbg.draw_points(np.array([0, 0, 1.0, 1.0], dtype=np.float32), self.transform)
+    def draw(self, node):
+        super(Deformer, self).draw(node)
+        if self.target_node and self.target_node.uuid == node.uuid:
+            dynamic_matrix = self.dynamic_matrix
+            if self.selected is not None and len(self.selected) > 0:
+                # Selected point
+                selected = self.draw_position[np.where(self.selected == 1)]
+                inochi2d.dbg.set_buffer(selected)
+                inochi2d.dbg.points_size(self.RADIUS)
+                inochi2d.dbg.draw_points(np.array([0, 0, 0, 1.0], dtype=np.float32), dynamic_matrix)
+                inochi2d.dbg.points_size(self.RADIUS - 2)
+                inochi2d.dbg.draw_points(np.array([0, 1, 1, 1.0], dtype=np.float32), dynamic_matrix)
+            if self.selecting is not None and len(self.selecting) > 0:
+                # Selection floating
+                selecting = self.draw_position[np.where(self.selecting)]
+                inochi2d.dbg.set_buffer(selecting)
+                inochi2d.dbg.draw_points(np.array([0, 1.0, 0, 1.0], dtype=np.float32), dynamic_matrix)
