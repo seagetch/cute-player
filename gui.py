@@ -31,6 +31,7 @@ class Inochi2DView(QtOpenGL.QGLWidget):
         self.params = []
         self.perf_time = None
         self.perf_counter = 0
+        self.draw_counter = 0
         self.drag = False
         self.on_update_tracking = None
 
@@ -89,6 +90,7 @@ class Inochi2DView(QtOpenGL.QGLWidget):
         if self.perf_time is None:
             self.perf_time = time.time()
         self.perf_counter += 1
+        draw_start = time.perf_counter()
         try:
             # It seems inochi2d leaves some GL error, and OpenGL.GL see it as an error for successive command.
             GL.glClearColor(1.0, 1.0, 1.0, 1.0)
@@ -135,11 +137,13 @@ class Inochi2DView(QtOpenGL.QGLWidget):
         if self.on_update_tracking:
             self.on_update_tracking(self)
         
+        self.draw_counter += time.perf_counter() - draw_start
         time_diff = time.time() - self.perf_time
         if time_diff > 1:
-            self.statusbar.showMessage("%5.2f fps | %5.2f fps(OpenSeeFace)"%(self.perf_counter / time_diff, self.tracker.last_fps_counter))
+            self.statusbar.showMessage("%5.2f fps (%5.2f secs) | %5.2f fps(OpenSeeFace)"%(self.perf_counter / time_diff, self.draw_counter, self.tracker.last_fps_counter))
             self.perf_time = time.time()
             self.perf_counter = 0
+            self.draw_counter = 0
         self.update()
 
 class ParameterView(QtWidgets.QWidget):
@@ -288,8 +292,10 @@ def run(tracker=None):
         name = api.inPuppetGetName(self.puppet.handle)
         print(name)
         root = self.puppet.root
-        def dump_json(item, col):
+        def on_select_node(item, col):
             self.active_node = item.node
+            if self.tool:
+                self.tool.switch_node(item.node)
             text_area.setPlainText(json.dumps(item.node.dumps(False), indent=4, ensure_ascii=False))
 
         def dump_node(node, parent):
@@ -338,7 +344,7 @@ def run(tracker=None):
                 dump_node(c, tree_item)
         tree_widget.clear()
         dump_node(root, None)
-        tree_widget.itemClicked.connect(dump_json)
+        tree_widget.itemClicked.connect(on_select_node)
         tree_widget.expandAll()
         tree_widget.setStyleSheet("QTreeWidget::item { padding: 0; margin: 0}")
 
@@ -504,8 +510,9 @@ def run(tracker=None):
             window.tool_actions = []
             param_list.active = False
             param_list.update()
-            for param in gl_widget.puppet.parameters:
-                param.reset()
+            if gl_widget.puppet:
+                for param in gl_widget.puppet.parameters:
+                    param.reset()
 
             color = QtGui.QColor(int(1 * 255), int(0.7 * 255), 0)
             toolbar.setStyleSheet("""QToolBar, QToolBar QWidget {background: rgb(%d, %d, %d); padding: 0 }"""%(color.red(), color.green(), color.blue()))

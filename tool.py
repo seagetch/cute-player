@@ -2,6 +2,7 @@ import numpy as np
 import inochi2d.api as api
 import inochi2d.inochi2d as inochi2d
 from PySide2 import QtCore, QtWidgets
+import qtawesome as qta
 import traceback
 
 
@@ -17,7 +18,7 @@ class Tool:
     def show_toolbar(self, toolbar, sibling):
         pass
 
-    def on_set_node(self, node):
+    def switch_node(self, target_node):
         pass
 
     def mousePressEvent(self, event):
@@ -182,6 +183,8 @@ class NodeScaling(NodeTool):
 
 class NodeMeshEditor(NodeTool):
     RADIUS = 8
+    MODE_POINT   = 0
+    MODE_CONNECT = 1
 
     def __init__(self, window):
         super(NodeMeshEditor, self).__init__(window)
@@ -193,14 +196,43 @@ class NodeMeshEditor(NodeTool):
         self.selecting     = None
         self.transform     = None
         self.draw_position = None
+        self.mode          = self.MODE_POINT
+        self.editing_links = np.array([]).reshape((0,2))
 
     def init(self):
         self.window.setCursor(QtCore.Qt.PointingHandCursor)
 
     def show_toolbar(self, toolbar, sibling):
+        action_group = QtWidgets.QActionGroup(toolbar)
+        action = QtWidgets.QAction(qta.icon("mdi.vector-point"), "Point Edit", action_group, checkable = True)
+        toolbar.insertAction(sibling, action)
+        toolbar.option_widgets.append(action)
+        def on_select_point(isChecked):
+            if isChecked:
+                self.mode = self.MODE_POINT
+        action.toggled.connect(on_select_point)
+
+        action = QtWidgets.QAction(qta.icon("mdi.vector-polyline-edit"), "Connections", action_group, checkable = True)
+        toolbar.insertAction(sibling, action)
+        toolbar.option_widgets.append(action)
+        def on_select_connect(isChecked):
+            if isChecked:
+                self.mode = self.MODE_CONNECT
+        action.toggled.connect(on_select_connect)
+
         button = QtWidgets.QPushButton("Apply")
         action = toolbar.insertWidget(sibling, button)
         toolbar.option_widgets.append(action)
+
+    def switch_node(self, target_node):
+        if target_node != self.target_node:
+            self.target_node = target_node
+
+            drawable = inochi2d.Drawable(target_node)
+            self.mesh         = drawable.mesh
+            self.deformation  = drawable.deformation
+            self.transform    = drawable.dynamic_matrix
+            self.selected     = None
 
     def calculateSelection(self, local_pos):
         selected = np.where(np.linalg.norm(self.mesh.verts - local_pos[0:2], axis=1) < self.RADIUS / self.window.scale)
@@ -218,21 +250,54 @@ class NodeMeshEditor(NodeTool):
         super(NodeMeshEditor, self).mousePressEvent(event)
         self.pos[1] *= -1
         target_node  = self.window.active_node
-        if target_node != self.target_node:
-            self.target_node = target_node
+        self.switch_node(target_node)
 
-            drawable = inochi2d.Drawable(target_node)
-            self.mesh         = drawable.mesh
-            self.deformation  = drawable.deformation
-            self.transform    = drawable.dynamic_matrix
-
-        self.drag = True
         local_pos = np.linalg.inv(self.transform) @ self.pos
-        self.drag_start = local_pos
-        self.start_point = np.copy(self.mesh.verts)
-        self.calculateSelection(local_pos)
+
+        if self.mode == self.MODE_POINT:
+            self.drag = True
+            self.drag_start = local_pos
+            self.start_point = np.copy(self.mesh.verts)
+            self.calculateSelection(local_pos)
+        
+        elif self.mode == self.MODE_CONNECT:
+            prev_selected = [[]]
+            if self.selected is not None:
+                prev_selected = np.where(self.selected == 1)
+            self.calculateSelection(local_pos)
+            self.selecting = None
+            if self.selected is not None:
+                selected = np.where(self.selected == 1)
+                if len(selected[0]) == 1 and len(prev_selected[0]) == 1:
+                    if selected[0][0] != prev_selected[0][0]:
+                        removed = np.any(self.mesh.indices == selected[0][0], axis=1) & np.any(self.mesh.indices == prev_selected[0][0], axis=1)
+                        removed_conn = self.mesh.indices[removed]
+                        if len(removed_conn) > 0:
+                            rev_ind_map = np.ones(len(self.mesh.indices), dtype=bool)
+                            rev_ind_map[removed] = False
+                            self.mesh.indices = self.mesh.indices[rev_ind_map]
+                            del_edge = np.array([min(selected[0][0], prev_selected[0][0]), max(selected[0][0], prev_selected[0][0])])
+                            combinations = np.array(np.meshgrid(removed_conn, removed_conn)).T.reshape(-1, 2)
+                            edges        = combinations[combinations[:, 0] < combinations[:, 1]]
+                            edges        = edges[np.all(edges != del_edge, axis=1)]
+                            self.editing_links = np.append(self.editing_links, edges, axis=0)
+                            print(self.editing_links.shape, edges.shape)
+                        else:
+                            self.editing_links = np.append(self.editing_links, np.array([[min(prev_selected[0][0], selected[0][0]), max(prev_selected[0][0], selected[0][0])]], dtype=np.ushort), axis=0)
+                            self.selected = None
+                            tri_edges = np.array([[e1, e2] for i, e1 in enumerate(self.editing_links) for j, e2 in enumerate(self.editing_links[i+1:], i+1) if np.intersect1d(e1, e2).size == 1])
+                            triangles = np.array([np.unique(np.concatenate(edges)) for edges in tri_edges if np.unique(np.concatenate(edges)).size == 3])
+                            self.mesh.indices = np.append(self.mesh.indices, triangles, axis=0)
+                            print(self.mesh.indices.shape, triangles.shape)
+
+                    else:
+                        self.selected = None
+                print(self.editing_links)
+
 
     def mouseDoubleClickEvent(self, event):
+        if self.mode == self.MODE_CONNECT:
+            return
         self.pos = np.array([event.pos().x(), event.pos().y(), 0, 1], dtype=np.float32)
         self.matrix = self.camera.screen_to_global
         self.pos = self.matrix @ self.pos
@@ -266,25 +331,27 @@ class NodeMeshEditor(NodeTool):
         super(NodeMeshEditor, self).mouseMoveEvent(event)
         self.pos[1] *= -1
         local_pos = np.linalg.inv(self.transform) @ self.pos
-        if self.selecting is not None:
-            rect = np.array([self.drag_start[0:2], local_pos[0:2]])
-            self.selecting = (np.min(rect, axis=0) <= self.mesh.verts) & (self.mesh.verts <= np.max(rect, axis=0))
-            self.selecting = self.selecting[:, 0] & self.selecting[:, 1]
-            self.rect = rect
-        elif self.drag:
-            diff_pos = local_pos - self.drag_start
-            selected = np.append([self.selected], [self.selected], axis=0).T
-            pos      = np.repeat([diff_pos[0:2]], len(self.selected), axis=0)
-            self.mesh.verts = self.start_point + selected * pos
+
+        if self.mode == self.MODE_POINT:
+            if self.selecting is not None:
+                rect = np.array([self.drag_start[0:2], local_pos[0:2]])
+                self.selecting = (np.min(rect, axis=0) <= self.mesh.verts) & (self.mesh.verts <= np.max(rect, axis=0))
+                self.selecting = self.selecting[:, 0] & self.selecting[:, 1]
+                self.rect = rect
+            elif self.drag:
+                diff_pos = local_pos - self.drag_start
+                selected = np.append([self.selected], [self.selected], axis=0).T
+                pos      = np.repeat([diff_pos[0:2]], len(self.selected), axis=0)
+                self.mesh.verts = self.start_point + selected * pos
 
     def mouseReleaseEvent(self, event):
         super(NodeMeshEditor, self).mouseReleaseEvent(event)
-        if self.selecting is not None:
-            self.selected = self.selecting
-            self.selecting = None
-        if self.drag:
-            self.drag     = False
-            drawable = inochi2d.Drawable(self.target_node)
+        if self.mode == self.MODE_POINT:
+            if self.selecting is not None:
+                self.selected = self.selecting
+                self.selecting = None
+            if self.drag:
+                self.drag     = False
 
     def draw(self, node):
         # Bounds
@@ -350,7 +417,7 @@ class NodeMeshEditor(NodeTool):
             if self.selecting is not None and len(self.selecting) > 0:
                 # Selection floating
                 local_pos = np.linalg.inv(self.transform) @ self.pos
-                self._draw_rect((self.drag_start[0], self.drag_start[1], local_pos[0], local_pos[1]), np.array([0, 1, 0, 1], dtype=np.float32), self.transform)
+                self._draw_rect((self.drag_start[0], self.drag_start[1], local_pos[0], local_pos[1]), np.array([1, 1, 0, 1], dtype=np.float32), self.transform)
                 selecting = new_position[np.where(self.selecting)]
                 inochi2d.dbg.set_buffer(selecting)
                 inochi2d.dbg.points_size(self.RADIUS)
