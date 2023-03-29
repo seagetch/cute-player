@@ -224,8 +224,61 @@ class NodeMeshEditor(NodeTool):
         action = toolbar.insertWidget(sibling, button)
         toolbar.option_widgets.append(action)
 
+    def _tri2edge(self, triangles):
+        edges = np.zeros((len(triangles),6), dtype=np.ushort)
+        edges[:,0] = triangles[:, 0]
+        edges[:,1] = triangles[:, 1]
+        edges[:,2] = triangles[:, 1]
+        edges[:,3] = triangles[:, 2]
+        edges[:,4] = triangles[:, 0]
+        edges[:,5] = triangles[:, 2]
+        edges = edges.reshape(-1, 2)
+        new_edges = np.zeros((len(edges), 2), dtype=np.ushort)
+        new_edges[:, 0] = np.min(edges, axis=1)
+        new_edges[:, 1] = np.max(edges, axis=1)
+        new_edges = np.unique(new_edges.reshape((-1, 2)), axis=0)
+        return new_edges.astype(np.ushort)
+    
+    def _edge2tri(self, edge_indices):
+        triangles = {}
+        for i,e1 in enumerate(edge_indices):
+            for j,e2 in enumerate(edge_indices[i+1:]):
+                if e1[0] == e2[0]:
+                    for k,e3 in enumerate(edge_indices[j+1:]):
+                        if e3[0] == e1[1] and e3[1] == e2[1]:
+                            triangles[(e1[0], e1[1], e2[1])] = True
+        triangles = np.array(list(triangles.keys()), dtype=np.ushort)
+        return triangles
+
+    def apply(self):
+        if self.target_node:
+            if self.mesh:
+                drawable = inochi2d.Drawable(self.target_node)
+                self.mesh.verts = self.mesh.verts.astype(np.float32)
+                # FIXME: UVs must be converted in different way...
+                part = inochi2d.Part(self.target_node)
+                texture = part.textures
+                if texture:
+                    texture = texture[0]
+                    bound_min = np.array((-texture.width / 2, -texture.height / 2))
+                    bound_max = np.array((texture.width / 2, texture.height / 2))
+                else:
+                    bound_min = np.min(self.mesh.verts, axis=0)
+                    bound_max = np.max(self.mesh.verts, axis=0)
+
+                self.mesh.uvs = ((self.mesh.verts - bound_min) / (bound_max - bound_min)).astype(np.float32)
+                self.editing_links = self.editing_links[np.argsort(self.editing_links[:,0] * len(self.mesh.verts) + self.editing_links[:,1])]
+                self.mesh.indices = self._edge2tri(self.editing_links)
+                drawable.mesh = self.mesh
+
+    def deactivate(self):
+        self.apply()
+        self.target_node = None
+        self.mesh = None
+
     def switch_node(self, target_node):
         if target_node != self.target_node:
+            self.deactivate()
             self.target_node = target_node
 
             drawable = inochi2d.Drawable(target_node)
@@ -233,6 +286,7 @@ class NodeMeshEditor(NodeTool):
             self.deformation  = drawable.deformation
             self.transform    = drawable.dynamic_matrix
             self.selected     = None
+            self.editing_links = self._tri2edge(self.mesh.indices)
 
     def calculateSelection(self, local_pos):
         selected = np.where(np.linalg.norm(self.mesh.verts - local_pos[0:2], axis=1) < self.RADIUS / self.window.scale)
@@ -270,29 +324,17 @@ class NodeMeshEditor(NodeTool):
                 selected = np.where(self.selected == 1)
                 if len(selected[0]) == 1 and len(prev_selected[0]) == 1:
                     if selected[0][0] != prev_selected[0][0]:
-                        removed = np.any(self.mesh.indices == selected[0][0], axis=1) & np.any(self.mesh.indices == prev_selected[0][0], axis=1)
-                        removed_conn = self.mesh.indices[removed]
-                        if len(removed_conn) > 0:
-                            rev_ind_map = np.ones(len(self.mesh.indices), dtype=bool)
-                            rev_ind_map[removed] = False
-                            self.mesh.indices = self.mesh.indices[rev_ind_map]
-                            del_edge = np.array([min(selected[0][0], prev_selected[0][0]), max(selected[0][0], prev_selected[0][0])])
-                            combinations = np.array(np.meshgrid(removed_conn, removed_conn)).T.reshape(-1, 2)
-                            edges        = combinations[combinations[:, 0] < combinations[:, 1]]
-                            edges        = edges[np.all(edges != del_edge, axis=1)]
-                            self.editing_links = np.append(self.editing_links, edges, axis=0)
-                            print(self.editing_links.shape, edges.shape)
-                        else:
-                            self.editing_links = np.append(self.editing_links, np.array([[min(prev_selected[0][0], selected[0][0]), max(prev_selected[0][0], selected[0][0])]], dtype=np.ushort), axis=0)
-                            self.selected = None
-                            tri_edges = np.array([[e1, e2] for i, e1 in enumerate(self.editing_links) for j, e2 in enumerate(self.editing_links[i+1:], i+1) if np.intersect1d(e1, e2).size == 1])
-                            triangles = np.array([np.unique(np.concatenate(edges)) for edges in tri_edges if np.unique(np.concatenate(edges)).size == 3])
-                            self.mesh.indices = np.append(self.mesh.indices, triangles, axis=0)
-                            print(self.mesh.indices.shape, triangles.shape)
+                        target_edge = np.array([min(selected[0][0], prev_selected[0][0]), max(selected[0][0], prev_selected[0][0])])
+                        # Test removing.
+                        links_len = len(self.editing_links)
+                        self.editing_links = self.editing_links[np.any(self.editing_links != target_edge, axis=1)]
+                        if len(self.editing_links) == links_len:
+                            ## This should be 1. add link, 2. remove duplication.
+                            self.editing_links = np.append(self.editing_links, [target_edge], axis=0)
+                        self.selected = None
 
                     else:
                         self.selected = None
-                print(self.editing_links)
 
 
     def mouseDoubleClickEvent(self, event):
@@ -368,30 +410,18 @@ class NodeMeshEditor(NodeTool):
         new_position   = None
         try:
             # Lines
-            if self.target_node is None:
-                self.target_node = self.window.active_node
-                self.selected = None
+            if self.mesh is None:
+                self.switch_node(self.window.active_node)
             if self.target_node is None:
                 return
             drawable = inochi2d.Drawable(self.target_node)
-            if self.mesh is None:
-                self.mesh         = drawable.mesh
-                self.deformation  = drawable.deformation
-                self.transform    = drawable.dynamic_matrix
 
             position = self.mesh.verts + self.deformation
             new_position = np.zeros((len(position), 3), dtype=np.float32)
             new_position[:, 0:2] = position
-            indice_map = np.zeros((self.mesh.indices.shape[0], self.mesh.indices.shape[1] * 2), dtype=np.int16)
-            indice_map[:, 0] = self.mesh.indices[:, 0]
-            indice_map[:, 1] = self.mesh.indices[:, 1]
-            indice_map[:, 2] = self.mesh.indices[:, 1]
-            indice_map[:, 3] = self.mesh.indices[:, 2]
-            indice_map[:, 4] = self.mesh.indices[:, 2]
-            indice_map[:, 5] = self.mesh.indices[:, 0]
-            new_lines = new_position[indice_map.reshape((len(indice_map) * 6,))]
             dynamic_matrix = drawable.dynamic_matrix
-            inochi2d.dbg.set_buffer(new_lines)
+            new_links = new_position[self.editing_links.ravel()]
+            inochi2d.dbg.set_buffer(new_links)
             inochi2d.dbg.line_width(3)
             inochi2d.dbg.draw_lines(np.array([1, 0.6, 0, 1.0], dtype=np.float32), dynamic_matrix)
 
