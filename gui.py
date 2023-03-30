@@ -129,10 +129,10 @@ class Inochi2DView(QtOpenGL.QGLWidget):
                 api.inUpdate()
                 self.puppet.draw()
 
-            if self.active_node and self.tool:
-                drawable = inochi2d.Drawable(self.active_node)
-                drawable.draw_mesh_lines()
-                self.tool.draw(self.active_node)
+                if self.active_node and self.tool:
+                    drawable = inochi2d.Drawable(self.active_node)
+                    drawable.draw_mesh_lines()
+                    self.tool.draw(self.active_node)
     
         if self.on_update_tracking:
             self.on_update_tracking(self)
@@ -500,6 +500,8 @@ def run(tracker=None):
                         toolbar.removeAction(widget)
                     gl_widget.tool.show_toolbar(toolbar, spacer2)
         return on_select
+    
+
     def on_toggle_parts_layout(isChecked):
         if isChecked:
             tool_id = -1
@@ -514,6 +516,10 @@ def run(tracker=None):
             if gl_widget.puppet:
                 for param in gl_widget.puppet.parameters:
                     param.reset()
+
+#            color = tree_widget.palette().color(QtGui.QPalette.Active, QtGui.QPalette.Base)
+#            tree_widget.setStyleSheet("""QTreeWidget {background: rgb(%d, %d, %d); }"""%(color.red(), color.green(), color.blue()))
+            tree_widget.setStyleSheet("""QTreeWidget {background: "#ffffff"; }""")
 
             color = QtGui.QColor(int(1 * 255), int(0.7 * 255), 0)
             toolbar.setStyleSheet("""QToolBar, QToolBar QWidget {background: rgb(%d, %d, %d); padding: 0 }"""%(color.red(), color.green(), color.blue()))
@@ -566,6 +572,10 @@ def run(tracker=None):
 
             param_list.active = True
             param_list.update()
+
+            color = tree_widget.palette().color(QtGui.QPalette.Active, QtGui.QPalette.Window)
+#            tree_widget.setStyleSheet("""QTreeWidget {background: rgb(%d, %d, %d); }"""%(color.red(), color.green(), color.blue()))
+            tree_widget.setStyleSheet("""QTreeWidget {background: "#eeeeee"; }""")
 
             color = QtGui.QColor(0, int(0.8 * 255), int(1 * 255))
             toolbar.setStyleSheet("""QToolBar, QToolBar QWidget {background: rgb(%d, %d, %d); padding: 0 }"""%(color.red(), color.green(), color.blue()))
