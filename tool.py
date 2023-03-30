@@ -225,6 +225,8 @@ class NodeMeshEditor(NodeTool):
         toolbar.option_widgets.append(action)
 
     def _tri2edge(self, triangles):
+        if triangles is None:
+            return np.array([], dtype=np.ushort)
         edges = np.zeros((len(triangles),6), dtype=np.ushort)
         edges[:,0] = triangles[:, 0]
         edges[:,1] = triangles[:, 1]
@@ -252,10 +254,9 @@ class NodeMeshEditor(NodeTool):
 
     def apply(self):
         if self.target_node:
-            if self.mesh:
+            if self.mesh and not self.mesh.is_empty():
                 drawable = inochi2d.Drawable(self.target_node)
                 self.mesh.verts = self.mesh.verts.astype(np.float32)
-                # FIXME: UVs must be converted in different way...
                 part = inochi2d.Part(self.target_node)
                 texture = part.textures
                 if texture:
@@ -278,7 +279,7 @@ class NodeMeshEditor(NodeTool):
 
     def switch_node(self, target_node):
         if target_node != self.target_node:
-            self.deactivate()
+            self.apply()
             self.target_node = target_node
 
             drawable = inochi2d.Drawable(target_node)
@@ -412,7 +413,7 @@ class NodeMeshEditor(NodeTool):
             # Lines
             if self.mesh is None:
                 self.switch_node(self.window.active_node)
-            if self.target_node is None:
+            if self.target_node is None or self.mesh.is_empty():
                 return
             drawable = inochi2d.Drawable(self.target_node)
 
