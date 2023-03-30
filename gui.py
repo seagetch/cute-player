@@ -285,7 +285,8 @@ def run(tracker=None):
             "",
             QtWidgets.QFileDialog.Options()
         )[0]
-        print(model_name)
+        if model_name == '':
+            return
         self.puppet = inochi2d.Puppet.load(model_name)
         self.puppet.enable_drivers = True
         self.active_param = None
